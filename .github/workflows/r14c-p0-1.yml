@@ -1,0 +1,89 @@
+name: R14-C P0-1 Auto Import
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    name: Import archive + real lockfile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+
+      - name: Verify archive exists
+        run: |
+          test -f MovieHub-R14-B.zip
+
+      - name: Verify archive SHA-256
+        shell: bash
+        run: |
+          EXPECTED="6c2fc9059190b375504beca005ed78cbc73041c8710dcb11bf992012d4bf3195"
+          ACTUAL="$(sha256sum MovieHub-R14-B.zip | awk '{print $1}')"
+
+          echo "EXPECTED SHA256: $EXPECTED"
+          echo "ACTUAL   SHA256: $ACTUAL"
+
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Extract MovieHub archive
+        shell: bash
+        run: |
+          unzip -o MovieHub-R14-B.zip -d .
+          rm -f MovieHub-R14-B.zip
+
+      - name: Verify project manifest
+        shell: bash
+        run: |
+          test -f package.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: P0-1 Generate real package-lock.json
+        shell: bash
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install --package-lock-only
+          test -s package-lock.json
+
+      - name: Inspect generated lockfile
+        shell: bash
+        run: |
+          echo "----- package-lock.json -----"
+          head -20 package-lock.json
+          echo "-----------------------------"
+
+      - name: P0-1 npm ci
+        run: npm ci
+
+      - name: P0-1 typecheck
+        run: npm run typecheck
+
+      - name: P0-1 build
+        run: npm run build
+
+      - name: Commit real lockfile
+        shell: bash
+        run: |
+          git config user.name "R14-C Bot"
+          git config user.email "r14c@moviehub.local"
+
+          git add package-lock.json
+
+          if git diff --cached --quiet; then
+            echo "No package-lock.json change to commit."
+            exit 0
+          fi
+
+          git commit -m "R14-C P0-1: real lockfile from registry"
+          git push
